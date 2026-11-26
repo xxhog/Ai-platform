@@ -1,0 +1,78 @@
+@page
+@model IndexModel
+@{
+    ViewData["Title"] = "Vektor — AI-помощник";
+}
+
+<div class="app-shell">
+    <aside class="sidebar">
+        <a class="brand" asp-page="/Index" aria-label="Vektor — главная"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32" focusable="false"><path d="M6 11.5 15 22l11-13M18.5 9H26v7.5" /></svg></span><span>Vektor</span></a>
+        <button class="new-chat" id="new-chat" type="button"><span>＋</span> Новый диалог</button>
+        <div class="side-label">Недавние</div>
+        <div class="history-list" id="history-list"><p class="empty-history">Здесь появятся ваши диалоги</p></div>
+        <div class="sidebar-bottom"><div class="avatar">У</div><div><strong>Учебный аккаунт</strong><small>Локальная версия</small></div><span class="more">···</span></div>
+    </aside>
+    <section class="workspace">
+        <header class="topbar"><span class="model-picker">Vektor <span class="chevron">⌄</span></span><span class="top-action">Учебный проект</span></header>
+        <main class="chat-scroll">
+            <section class="welcome">
+                <div class="welcome-star" aria-hidden="true"><svg viewBox="0 0 32 32" focusable="false"><path d="M6 11.5 15 22l11-13M18.5 9H26v7.5" /></svg></div><p class="eyebrow">ВАШ ИИ-ПОМОЩНИК</p><h1>С чего начнём?</h1>
+                <p class="welcome-copy">Задайте вопрос, загрузите документ или выберите подсказку ниже.</p>
+                <div class="suggestions">
+                    <button class="suggestion" type="button" data-prompt="Объясни тему простыми словами и приведи пример"><span class="suggestion-icon">✦</span><span><strong>Объясни сложную тему</strong><small>Простыми словами и с примерами</small></span><span class="suggestion-arrow">↗</span></button>
+                    <button class="suggestion" type="button" data-prompt="Переведи этот текст на английский язык"><span class="suggestion-icon">文</span><span><strong>Переведи текст</strong><small>На другой язык за секунды</small></span><span class="suggestion-arrow">↗</span></button>
+                    <button class="suggestion" type="button" data-prompt="Объясни, как работает этот фрагмент кода"><span class="suggestion-icon">⌘</span><span><strong>Помоги с кодом</strong><small>Разберёмся вместе, шаг за шагом</small></span><span class="suggestion-arrow">↗</span></button>
+                    <button class="suggestion" type="button" data-prompt="Я хочу задать вопрос по документу"><span class="suggestion-icon">▤</span><span><strong>Разбери документ</strong><small>Загрузи файл и задай вопрос</small></span><span class="suggestion-arrow">↗</span></button>
+                </div>
+            </section>
+            <section class="messages" id="messages" aria-live="polite"></section>
+        </main>
+        <div class="composer-wrap">
+            <form class="composer" id="chat-form"><textarea id="prompt" rows="2" placeholder="Напишите сообщение..." aria-label="Сообщение"></textarea>
+                <div class="composer-actions"><div class="composer-tools"><label class="tool-button" for="document">＋<span class="visually-hidden">Добавить документ</span></label><input id="document" class="visually-hidden" type="file" accept=".pdf,.docx,.txt" /><span class="tool-divider"></span><span class="context-label" id="file-name">Спросить что угодно</span></div><div class="send-actions"><button class="stop-button" id="stop-generation" type="button" hidden>Остановить</button><button class="send-button" id="send" type="submit" aria-label="Отправить сообщение" disabled>↑</button></div></div>
+            </form><p class="disclaimer">AI может допускать ошибки. Проверяйте важную информацию.</p>
+        </div>
+    </section>
+</div>
+<dialog class="conversation-dialog" id="conversation-dialog" aria-labelledby="dialog-title">
+    <form id="conversation-dialog-form" novalidate>
+        <p class="dialog-eyebrow">ИСТОРИЯ ДИАЛОГОВ</p>
+        <h2 id="dialog-title">Переименовать диалог</h2>
+        <p class="dialog-copy" id="dialog-copy"></p>
+        <label class="dialog-label" id="dialog-label" for="dialog-input">Название</label>
+        <input class="dialog-input" id="dialog-input" type="text" maxlength="80" autocomplete="off" />
+        <p class="dialog-error" id="dialog-error" role="alert" hidden></p>
+        <div class="dialog-actions">
+            <button class="dialog-cancel" id="dialog-cancel" type="button">Отмена</button>
+            <button class="dialog-confirm" id="dialog-confirm" type="submit">Сохранить</button>
+        </div>
+    </form>
+</dialog>
+@section Scripts {
+<script>
+const promptBox=document.querySelector('#prompt'),sendButton=document.querySelector('#send'),stopButton=document.querySelector('#stop-generation'),form=document.querySelector('#chat-form'),messages=document.querySelector('#messages'),fileInput=document.querySelector('#document'),historyList=document.querySelector('#history-list');
+let activeConversationId=null,controller=null;
+const api=async(url,options={})=>{const response=await fetch(url,{headers:{'Content-Type':'application/json',...(options.headers||{})},...options});if(!response.ok){let message='Не удалось выполнить действие.';try{const problem=await response.json();message=problem.detail||problem.title||message}catch{}throw new Error(message)}return response.status===204?null:response.json()};
+const showMessages=items=>{messages.replaceChildren();for(const item of items){const bubble=document.createElement('p');bubble.className=item.role==='assistant'?'assistant-message':'user-message';bubble.textContent=item.content;messages.append(bubble)}messages.classList.toggle('messages-visible',items.length>0)};
+const refreshHistory=async()=>{const items=await api('/api/conversations');historyList.replaceChildren();if(!items.length){const empty=document.createElement('p');empty.className='empty-history';empty.textContent='Здесь появятся ваши диалоги';historyList.append(empty);return}for(const item of items){const row=document.createElement('div');row.className='history-item'+(item.id===activeConversationId?' active':'');const select=document.createElement('button');select.className='history-select';select.textContent=item.title;select.title=item.title;select.onclick=()=>openConversation(item.id);const rename=document.createElement('button');rename.className='history-action';rename.textContent='✎';rename.title='Переименовать';rename.onclick=()=>renameConversation(item);const remove=document.createElement('button');remove.className='history-action';remove.textContent='×';remove.title='Удалить';remove.onclick=()=>deleteConversation(item);row.append(select,rename,remove);historyList.append(row)}};
+const openConversation=async id=>{const item=await api(`/api/conversations/${id}`);activeConversationId=item.id;showMessages(item.messages);await refreshHistory()};
+const createConversation=async()=>{const item=await api('/api/conversations',{method:'POST'});activeConversationId=item.id;showMessages([]);await refreshHistory();promptBox.focus()};
+const conversationDialog=document.querySelector('#conversation-dialog'),dialogForm=document.querySelector('#conversation-dialog-form'),dialogTitle=document.querySelector('#dialog-title'),dialogCopy=document.querySelector('#dialog-copy'),dialogLabel=document.querySelector('#dialog-label'),dialogInput=document.querySelector('#dialog-input'),dialogError=document.querySelector('#dialog-error'),dialogConfirm=document.querySelector('#dialog-confirm');
+let dialogOperation=null;
+const openConversationDialog=(mode,item)=>new Promise(resolve=>{dialogOperation={mode,item,resolve};dialogError.hidden=true;dialogError.textContent='';dialogInput.value=item.title;dialogInput.hidden=mode==='delete';dialogLabel.hidden=mode==='delete';dialogTitle.textContent=mode==='rename'?'Переименовать диалог':'Удалить диалог?';dialogCopy.textContent=mode==='rename'?'Название будет видно в списке истории.':'Диалог и все его сообщения будут удалены.';dialogConfirm.textContent=mode==='rename'?'Сохранить':'Удалить';dialogConfirm.classList.toggle('dialog-danger',mode==='delete');conversationDialog.showModal();if(mode==='rename')dialogInput.focus();else dialogConfirm.focus()});
+const closeConversationDialog=result=>{if(!dialogOperation)return;const resolve=dialogOperation.resolve;dialogOperation=null;conversationDialog.close();resolve(result)};
+document.querySelector('#dialog-cancel').onclick=()=>closeConversationDialog(null);
+conversationDialog.addEventListener('click',event=>{if(event.target===conversationDialog)closeConversationDialog(null)});
+conversationDialog.addEventListener('cancel',event=>{event.preventDefault();closeConversationDialog(null)});
+dialogForm.addEventListener('submit',async event=>{event.preventDefault();if(!dialogOperation)return;const {mode,item}=dialogOperation;const title=dialogInput.value.trim();if(mode==='rename'&&(!title||title.length>80)){dialogError.textContent='Введите название от 1 до 80 символов.';dialogError.hidden=false;dialogInput.focus();return}dialogConfirm.disabled=true;dialogError.hidden=true;try{if(mode==='rename')await api(`/api/conversations/${item.id}`,{method:'PUT',body:JSON.stringify({title})});else{await api(`/api/conversations/${item.id}`,{method:'DELETE'});if(activeConversationId===item.id){activeConversationId=null;showMessages([])}}await refreshHistory();closeConversationDialog(true)}catch(error){dialogError.textContent=error.message||'Не удалось выполнить действие.';dialogError.hidden=false}finally{dialogConfirm.disabled=false}});
+const renameConversation=item=>openConversationDialog('rename',item);
+const deleteConversation=item=>openConversationDialog('delete',item);
+document.querySelector('#new-chat').onclick=()=>createConversation().catch(()=>alert('Не удалось создать диалог.'));
+promptBox.addEventListener('input',()=>sendButton.disabled=!promptBox.value.trim()||controller!==null);
+stopButton.onclick=()=>controller?.abort();
+document.querySelectorAll('[data-prompt]').forEach(button=>button.addEventListener('click',()=>{promptBox.value=button.dataset.prompt;promptBox.dispatchEvent(new Event('input'));promptBox.focus()}));
+fileInput.addEventListener('change',()=>document.querySelector('#file-name').textContent=fileInput.files[0]?.name||'Спросить что угодно');
+form.addEventListener('submit',async event=>{event.preventDefault();const content=promptBox.value.trim();if(!content||controller)return;controller=new AbortController();sendButton.disabled=true;stopButton.hidden=false;try{if(!activeConversationId)await createConversation();const response=await fetch(`/api/conversations/${activeConversationId}/chat`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content}),signal:controller.signal});if(!response.ok){let message='Не удалось получить ответ.';try{const problem=await response.json();message=problem.detail||problem.title||message}catch{}throw new Error(message)}const userBubble=document.createElement('p');userBubble.className='user-message';userBubble.textContent=content;messages.append(userBubble);const answer=document.createElement('p');answer.className='assistant-message';messages.append(answer);messages.classList.add('messages-visible');promptBox.value='';const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='';while(true){const {value,done}=await reader.read();if(done)break;buffer+=decoder.decode(value,{stream:true});const events=buffer.split('\n\n');buffer=events.pop()||'';for(const block of events){const dataLine=block.split('\n').find(part=>part.startsWith('data:'));if(!dataLine)continue;const data=dataLine.slice(5).trim();if(data==='[DONE]')continue;const part=JSON.parse(data);if(block.startsWith('event: error'))throw new Error(part.error||'Ошибка OpenRouter');if(part.text)answer.textContent+=part.text}}await refreshHistory()}catch(error){if(error.name!=='AbortError')alert(error.message||'Не удалось получить ответ.')}finally{controller=null;stopButton.hidden=true;promptBox.dispatchEvent(new Event('input'))}});
+refreshHistory().catch(()=>{historyList.innerHTML='<p class="empty-history">Не удалось загрузить историю</p>'});
+</script>
+}
